@@ -5,6 +5,18 @@ All notable changes to PatchCreator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.00] - 2026-05-27
+
+| Category | Description |
+|----------|-------------|
+| Added    | Package summary and final output now show separate Added, Modified, and Deleted file counts instead of a combined total |
+
+### Added
+
+- The package summary and post-build output now display three separate counters — Added, Modified, and Deleted — alongside the migration count and a grand total. Previously only a combined "added/modified" count and a deletion count were shown. The breakdown is derived from `git diff --name-status` and is only displayed when git diff mode is active (not when using `-f` with a manual file list).
+
+---
+
 ## [1.09.00] - 2026-05-27
 
 | Category | Description |

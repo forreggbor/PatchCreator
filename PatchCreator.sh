@@ -19,7 +19,7 @@ set -euo pipefail
 # Constants
 # ==============================================================================
 
-VERSION="v1.09.00"
+VERSION="v1.10.00"
 SCRIPT_NAME="$(basename "$0")"
 START_TIME=$(date +%s)
 
@@ -1349,6 +1349,10 @@ classify_file() {
     fi
 }
 
+DIFF_RANGE=""
+STATUS_AVAILABLE=false
+declare -A FILE_STATUS=()
+
 if [[ -n "$FILE_LIST" ]]; then
     # Read from file list (skip empty lines and comments)
     info "Reading file list from: ${FILE_LIST}"
@@ -1368,13 +1372,15 @@ if [[ -n "$FILE_LIST" ]]; then
     done < "$FILE_LIST"
 else
     # Use git diff to detect changes
-    info "Detecting changes: ${BASE_REF}..HEAD"
+    DIFF_RANGE="${BASE_REF}..HEAD"
+    info "Detecting changes: ${DIFF_RANGE}"
 
     # Get changed files (Added, Copied, Modified, Renamed)
-    mapfile -t RAW_FILES < <(git -C "$PROJECT_DIR" diff --name-only --diff-filter=ACMR "${BASE_REF}..HEAD" 2>/dev/null)
+    mapfile -t RAW_FILES < <(git -C "$PROJECT_DIR" diff --name-only --diff-filter=ACMR "${DIFF_RANGE}" 2>/dev/null)
 
     if [[ ${#RAW_FILES[@]} -eq 0 ]]; then
         # Also check uncommitted changes
+        DIFF_RANGE="HEAD"
         mapfile -t RAW_FILES < <(git -C "$PROJECT_DIR" diff --name-only --diff-filter=ACMR HEAD 2>/dev/null)
 
         if [[ ${#RAW_FILES[@]} -gt 0 ]]; then
@@ -1420,6 +1426,17 @@ else
         done
         warn "Run 'composer dump-autoload' and commit the result to include fresh maps."
     fi
+
+    # Build a status map (A/C/M/R per path) for summary display only.
+    # Uses the same filter and range as collection — packaged file set is unchanged.
+    while IFS=$'\t' read -r status f1 f2; do
+        [[ -z "$status" ]] && continue
+        local_letter="${status:0:1}"
+        local_path="$f1"
+        [[ "$local_letter" == "R" || "$local_letter" == "C" ]] && local_path="$f2"
+        FILE_STATUS["$local_path"]="$local_letter"
+    done < <(git -C "$PROJECT_DIR" diff --name-status --diff-filter=ACMR "${DIFF_RANGE}" 2>/dev/null)
+    STATUS_AVAILABLE=true
 fi
 
 # Check if we have any files, migrations, or deletions
@@ -1438,6 +1455,20 @@ if [[ ${#MIGRATION_BASENAMES[@]} -gt 0 ]]; then
     IFS=$'\n' MIGRATION_BASENAMES=($(sort <<<"${MIGRATION_BASENAMES[*]}")); unset IFS
     IFS=$'\n' MIGRATION_FILES=($(sort <<<"${MIGRATION_FILES[*]}")); unset IFS
 fi
+
+# Compute added/modified/deleted counts for summary display
+ADDED_COUNT=0
+MODIFIED_COUNT=0
+DELETED_COUNT=${#REMOVED_FILES[@]}
+if $STATUS_AVAILABLE; then
+    for f in "${PATCH_FILES[@]}" "${MIGRATION_FILES[@]}"; do
+        case "${FILE_STATUS[$f]:-M}" in
+            A|C) ((ADDED_COUNT++)) ;;
+            *)   ((MODIFIED_COUNT++)) ;;
+        esac
+    done
+fi
+TOTAL_COUNT=$((ADDED_COUNT + MODIFIED_COUNT + DELETED_COUNT))
 
 if [[ ${#PATCH_FILES[@]} -gt 0 ]]; then
     info "Files to package: ${#PATCH_FILES[@]}"
@@ -1517,8 +1548,16 @@ header "Package Summary"
 echo ""
 echo -e "  ${BOLD}Version:${NC}        ${TARGET_VERSION}"
 echo -e "  ${BOLD}Base ref:${NC}       ${BASE_REF} (${COMMIT_COUNT} commits)"
-echo -e "  ${BOLD}Files:${NC}          ${#PATCH_FILES[@]} added/modified, ${#REMOVED_FILES[@]} to remove"
-echo -e "  ${BOLD}Migrations:${NC}     ${#MIGRATION_FILES[@]} SQL migration(s)"
+if $STATUS_AVAILABLE; then
+    echo -e "  ${BOLD}Added:${NC}          ${ADDED_COUNT}"
+    echo -e "  ${BOLD}Modified:${NC}       ${MODIFIED_COUNT}"
+    echo -e "  ${BOLD}Deleted:${NC}        ${DELETED_COUNT}"
+    echo -e "  ${BOLD}Migrations:${NC}     ${#MIGRATION_FILES[@]} SQL migration(s)"
+    echo -e "  ${BOLD}Total:${NC}          ${TOTAL_COUNT}"
+else
+    echo -e "  ${BOLD}Files:${NC}          ${#PATCH_FILES[@]} added/modified, ${#REMOVED_FILES[@]} to remove"
+    echo -e "  ${BOLD}Migrations:${NC}     ${#MIGRATION_FILES[@]} SQL migration(s)"
+fi
 echo -e "  ${BOLD}Release notes:${NC}  $([ -n "$RELEASE_NOTES_CONTENT" ] && echo "Yes (${RELEASE_NOTES_SOURCE})" || echo "No")"
 echo -e "  ${BOLD}Output:${NC}         ${ARCHIVE_PATH}"
 
@@ -1692,12 +1731,20 @@ ARCHIVE_SIZE=$(stat -c%s "${ARCHIVE_PATH}" 2>/dev/null || stat -f%z "${ARCHIVE_P
 
 header "Patch package created"
 echo ""
-echo -e "  ${BOLD}Archive:${NC}   ${ARCHIVE_PATH}"
-echo -e "  ${BOLD}Hash:${NC}      ${HASH_PATH}"
-echo -e "  ${BOLD}Size:${NC}      $(format_size "$ARCHIVE_SIZE")"
-echo -e "  ${BOLD}SHA-256:${NC}   ${SHA256}"
-echo -e "  ${BOLD}Files:${NC}     ${#PATCH_FILES[@]}"
-echo -e "  ${BOLD}Migrations:${NC} ${#MIGRATION_FILES[@]}"
+echo -e "  ${BOLD}Archive:${NC}    ${ARCHIVE_PATH}"
+echo -e "  ${BOLD}Hash:${NC}       ${HASH_PATH}"
+echo -e "  ${BOLD}Size:${NC}       $(format_size "$ARCHIVE_SIZE")"
+echo -e "  ${BOLD}SHA-256:${NC}    ${SHA256}"
+if $STATUS_AVAILABLE; then
+    echo -e "  ${BOLD}Added:${NC}      ${ADDED_COUNT}"
+    echo -e "  ${BOLD}Modified:${NC}   ${MODIFIED_COUNT}"
+    echo -e "  ${BOLD}Deleted:${NC}    ${DELETED_COUNT}"
+    echo -e "  ${BOLD}Migrations:${NC} ${#MIGRATION_FILES[@]}"
+    echo -e "  ${BOLD}Total:${NC}      ${TOTAL_COUNT}"
+else
+    echo -e "  ${BOLD}Files:${NC}      ${#PATCH_FILES[@]}"
+    echo -e "  ${BOLD}Migrations:${NC} ${#MIGRATION_FILES[@]}"
+fi
 echo ""
 
 # Auto-upload to LicenseManager (opt-in)
