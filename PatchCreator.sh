@@ -19,7 +19,7 @@ set -euo pipefail
 # Constants
 # ==============================================================================
 
-VERSION="v1.10.00"
+VERSION="v1.10.01"
 SCRIPT_NAME="$(basename "$0")"
 START_TIME=$(date +%s)
 
@@ -1463,8 +1463,8 @@ DELETED_COUNT=${#REMOVED_FILES[@]}
 if $STATUS_AVAILABLE; then
     for f in "${PATCH_FILES[@]}" "${MIGRATION_FILES[@]}"; do
         case "${FILE_STATUS[$f]:-M}" in
-            A|C) ((ADDED_COUNT++)) ;;
-            *)   ((MODIFIED_COUNT++)) ;;
+            A|C) (( ++ADDED_COUNT )) ;;
+            *)   (( ++MODIFIED_COUNT )) ;;
         esac
     done
 fi

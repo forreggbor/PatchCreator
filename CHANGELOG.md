@@ -5,6 +5,18 @@ All notable changes to PatchCreator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.01] - 2026-05-27
+
+| Category | Description |
+|----------|-------------|
+| Fixed    | Script no longer exits prematurely when the first file in a patch is a newly added file |
+
+### Fixed
+
+- The counter increments for added and modified files used post-increment inside an arithmetic command (`(( VAR++ ))`). With `set -e` active, this returns exit status 1 on the first call when the counter is still zero, causing the script to abort silently. Changed to pre-increment (`(( ++VAR ))`) so the expression always evaluates to the new non-zero value.
+
+---
+
 ## [1.10.00] - 2026-05-27
 
 | Category | Description |
