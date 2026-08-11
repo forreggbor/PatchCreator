@@ -19,7 +19,7 @@ set -euo pipefail
 # Constants
 # ==============================================================================
 
-VERSION="v1.10.01"
+VERSION="v1.10.02"
 SCRIPT_NAME="$(basename "$0")"
 START_TIME=$(date +%s)
 
@@ -283,6 +283,52 @@ detect_version() {
     done
 
     eval "$prev_nullglob"
+}
+
+##
+# Auto-detect the project version from source files AT A SPECIFIC GIT REF,
+# without touching the working tree. Mirrors detect_version() but matches
+# each candidate glob against the ref's full tree listing using bash's own
+# glob matching (`git ls-tree` does not support `:(glob)` pathspec magic —
+# only a handful of git subcommands like grep/log/diff do), then reads blob
+# content via `git show` instead of the filesystem.
+#
+# Needed for a manually-specified -b <ref> that is not itself a vX.Y.Z-shaped
+# tag/string (e.g. a raw commit SHA, used when the intended base was never
+# tagged). Without this, BASE_VERSION has no way to be derived and silently
+# stays empty, which makes extract_changelog() fall back to its documented
+# "no lower bound" behavior — collecting every version block through EOF
+# instead of just the range since base. That previously produced a
+# multi-megabyte release_notes payload (every changelog entry in the
+# project's history) instead of the intended single-version note.
+#
+# @param string $1   Project directory (git repo root)
+# @param string $2   Git ref (commit SHA, branch, tag — anything git understands)
+# @param string $3…  Candidate file globs relative to project dir (bash glob syntax)
+# @return Version string or empty
+##
+detect_version_at_ref() {
+    local project_dir="$1"
+    local ref="$2"
+    shift 2
+
+    local -a all_paths
+    mapfile -t all_paths < <(git -C "$project_dir" ls-tree -r --name-only "$ref" 2>/dev/null)
+
+    local candidate path content version
+    for candidate in "$@"; do
+        for path in "${all_paths[@]}"; do
+            # shellcheck disable=SC2053 # intentional unquoted RHS: enables bracket-glob matching (e.g. [Hh]elpers)
+            [[ "$path" == $candidate ]] || continue
+
+            content=$(git -C "$project_dir" show "${ref}:${path}" 2>/dev/null)
+            version=$(grep -oP "define\('APP_VERSION',\s*'\K[^']+" <<< "$content" 2>/dev/null | head -1 || true)
+            if [[ -n "$version" ]]; then
+                echo "$version"
+                return 0
+            fi
+        done
+    done
 }
 
 ##
@@ -1257,6 +1303,17 @@ if [[ -z "$BASE_REF" ]]; then
 else
     if [[ "$BASE_REF" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)*)$ ]]; then
         BASE_VERSION="${BASH_REMATCH[1]}"
+    else
+        # BASE_REF isn't a vX.Y.Z-shaped string (e.g. a raw commit SHA, used
+        # when the intended base was never tagged) — resolve the version it
+        # actually points to by reading the version file's content at that
+        # ref, instead of leaving BASE_VERSION empty (which silently makes
+        # extract_changelog() collect the ENTIRE changelog history for the
+        # release notes instead of just the range since base).
+        BASE_VERSION=$(detect_version_at_ref "$PROJECT_DIR" "$BASE_REF" "${DEFAULT_VERSION_FILES[@]}")
+        if [[ -z "$BASE_VERSION" ]]; then
+            warn "Could not determine a version string for base ref '${BASE_REF}' — release notes will include every changelog entry through EOF instead of just the range since base. Pass -b <version-tag> instead, or verify ${DEFAULT_VERSION_FILES[0]} is readable at that ref."
+        fi
     fi
     info "Using specified reference: ${BOLD}${BASE_REF}${NC}"
 fi
@@ -1508,32 +1565,38 @@ elif ! $NO_CHANGELOG; then
     CHANGELOG_EN_PATH="${PROJECT_DIR}/CHANGELOG.md"
     CHANGELOG_HU_PATH="${PROJECT_DIR}/CHANGELOG.hu.md"
 
-    if [[ -f "$CHANGELOG_EN_PATH" ]]; then
-        CHANGELOG_EN=$(assemble_consolidated_notes "$CHANGELOG_EN_PATH" "$TARGET_VERSION" "$BASE_VERSION")
+    # Extracted independently — neither file is assumed primary. Some projects are
+    # English-primary (CHANGELOG.hu.md, if present, mirrors it); others are
+    # Hungarian-primary (CHANGELOG.hu.md is live, CHANGELOG.md's English entry for
+    # a given version may not exist yet — see the project's own CLAUDE.md for which
+    # policy applies). Whichever file(s) actually have an entry for TARGET_VERSION
+    # determine the output, so both policies work without PatchCreator needing to
+    # know which one is in effect.
+    CHANGELOG_EN=""
+    CHANGELOG_HU=""
+    [[ -f "$CHANGELOG_EN_PATH" ]] && CHANGELOG_EN=$(assemble_consolidated_notes "$CHANGELOG_EN_PATH" "$TARGET_VERSION" "$BASE_VERSION")
+    [[ -f "$CHANGELOG_HU_PATH" ]] && CHANGELOG_HU=$(assemble_consolidated_notes "$CHANGELOG_HU_PATH" "$TARGET_VERSION" "$BASE_VERSION")
 
-        if [[ -n "$CHANGELOG_EN" ]]; then
-            if [[ -f "$CHANGELOG_HU_PATH" ]]; then
-                CHANGELOG_HU=$(assemble_consolidated_notes "$CHANGELOG_HU_PATH" "$TARGET_VERSION" "$BASE_VERSION")
-                if [[ -n "$CHANGELOG_HU" ]]; then
-                    RELEASE_NOTES_CONTENT="$(printf '# English\n\n%s\n\n# Magyar\n\n%s' "$CHANGELOG_EN" "$CHANGELOG_HU")"
-                    RELEASE_NOTES_SOURCE="CHANGELOG.md + CHANGELOG.hu.md"
-                    success "Extracted dual-language release notes (EN + HU) for v${TARGET_VERSION}"
-                else
-                    warn "CHANGELOG.hu.md found but has no entry for v${TARGET_VERSION} — using English only."
-                    RELEASE_NOTES_CONTENT="$CHANGELOG_EN"
-                    RELEASE_NOTES_SOURCE="CHANGELOG.md"
-                    success "Extracted release notes from CHANGELOG.md for v${TARGET_VERSION}"
-                fi
-            else
-                RELEASE_NOTES_CONTENT="$CHANGELOG_EN"
-                RELEASE_NOTES_SOURCE="CHANGELOG.md"
-                success "Extracted release notes from CHANGELOG.md for v${TARGET_VERSION}"
-            fi
-        else
-            warn "No entry found in CHANGELOG.md for version ${TARGET_VERSION}."
-        fi
+    if [[ -n "$CHANGELOG_EN" && -n "$CHANGELOG_HU" ]]; then
+        RELEASE_NOTES_CONTENT="$(printf '# English\n\n%s\n\n# Magyar\n\n%s' "$CHANGELOG_EN" "$CHANGELOG_HU")"
+        RELEASE_NOTES_SOURCE="CHANGELOG.md + CHANGELOG.hu.md"
+        success "Extracted dual-language release notes (EN + HU) for v${TARGET_VERSION}"
+    elif [[ -n "$CHANGELOG_EN" ]]; then
+        RELEASE_NOTES_CONTENT="$CHANGELOG_EN"
+        RELEASE_NOTES_SOURCE="CHANGELOG.md"
+        success "Extracted release notes from CHANGELOG.md for v${TARGET_VERSION}"
+        [[ -f "$CHANGELOG_HU_PATH" ]] && warn "CHANGELOG.hu.md found but has no entry for v${TARGET_VERSION} — using English only."
+    elif [[ -n "$CHANGELOG_HU" ]]; then
+        RELEASE_NOTES_CONTENT="$CHANGELOG_HU"
+        RELEASE_NOTES_SOURCE="CHANGELOG.hu.md"
+        success "Extracted release notes from CHANGELOG.hu.md for v${TARGET_VERSION} (no English entry yet)"
+        [[ -f "$CHANGELOG_EN_PATH" ]] && warn "CHANGELOG.md found but has no entry for v${TARGET_VERSION} — using Hungarian only."
     else
-        warn "No CHANGELOG.md found in project root."
+        if [[ -f "$CHANGELOG_EN_PATH" || -f "$CHANGELOG_HU_PATH" ]]; then
+            warn "No entry found for version ${TARGET_VERSION} in CHANGELOG.md or CHANGELOG.hu.md."
+        else
+            warn "No CHANGELOG.md or CHANGELOG.hu.md found in project root."
+        fi
     fi
 else
     info "CHANGELOG extraction skipped (--no-changelog)."

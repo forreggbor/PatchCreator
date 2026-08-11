@@ -5,6 +5,18 @@ All notable changes to PatchCreator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.02] - 2026-08-11
+
+| Category | Description |
+|----------|-------------|
+| Fixed    | Release-notes extraction no longer requires an English changelog entry to exist before it will check the Hungarian one |
+
+### Fixed
+
+- Release-notes extraction treated `CHANGELOG.md` (English) as the sole entry point: `CHANGELOG.hu.md` was only consulted after confirming English already had an entry for the target version. A version with no English entry — even with a complete Hungarian entry present — produced a patch package with no release notes at all, silently. Both changelog files are now checked independently and combined based on whichever actually has content for the target version: dual-language when both do, single-language when only one does, and a warning only when neither does. (#1)
+
+---
+
 ## [1.10.01] - 2026-05-27
 
 | Category | Description |
