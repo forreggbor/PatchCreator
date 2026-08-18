@@ -485,9 +485,17 @@ matches_exclude() {
     local basename="${file##*/}"
 
     for pattern in "${patterns[@]}"; do
-        # Directory prefix patterns (ending with /)
+        # Directory prefix patterns (ending with /) — anchored to the project
+        # root only. Matching "*/${pattern}*" as well would exclude any file
+        # whose path merely contains the directory name at any depth (e.g. a
+        # "storage/" exclude meant for the top-level runtime storage/ dir was
+        # silently swallowing app/views/admin/storage/**, app/views/mobile/
+        # storage/** and app/views/admin/settings/storage/** from every patch
+        # ever built — those files never shipped to any client). Anyone who
+        # actually wants "this directory name at any depth" can pass an
+        # explicit glob via -e, e.g. -e '*/storage/*'.
         if [[ "$pattern" == */ ]]; then
-            if [[ "$file" == ${pattern}* || "$file" == */${pattern}* ]]; then
+            if [[ "$file" == ${pattern}* ]]; then
                 return 0
             fi
         # Patterns containing * — apply as glob against full path AND basename
