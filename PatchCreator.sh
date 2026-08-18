@@ -19,7 +19,7 @@ set -euo pipefail
 # Constants
 # ==============================================================================
 
-VERSION="v1.10.02"
+VERSION="v1.10.03"
 SCRIPT_NAME="$(basename "$0")"
 START_TIME=$(date +%s)
 
@@ -1478,6 +1478,22 @@ else
             matches_exclude "$df" "${ALL_ALLOW_OVERRIDES[@]}" || continue
         fi
         classify_file "$df" "delete"
+    done
+
+    # Detect renamed files (R-status) and collect their OLD path for removed_files.
+    # --name-only on ACMR above only reports the NEW path for a rename; without this,
+    # the old path is never added to the manifest and orphans on every client install.
+    declare -a RAW_RENAMED_OLD=()
+    while IFS=$'\t' read -r r_status r_old_path r_new_path; do
+        [[ "${r_status:0:1}" == "R" ]] || continue
+        RAW_RENAMED_OLD+=("$r_old_path")
+    done < <(git -C "$PROJECT_DIR" diff --name-status --diff-filter=R "${DIFF_RANGE}" 2>/dev/null)
+
+    for rf in "${RAW_RENAMED_OLD[@]}"; do
+        if matches_exclude "$rf" "${ALL_EXCLUDES[@]}"; then
+            matches_exclude "$rf" "${ALL_ALLOW_OVERRIDES[@]}" || continue
+        fi
+        classify_file "$rf" "delete"
     done
 
     # Warn when tracked autoload files have uncommitted working-tree changes.

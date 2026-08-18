@@ -5,6 +5,18 @@ All notable changes to PatchCreator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.03] - 2026-08-18
+
+| Category | Description |
+|----------|-------------|
+| Fixed    | Renamed files' old path is now added to the removed_files manifest |
+
+### Fixed
+
+- When git detected a file move as a rename rather than a delete-plus-add, only the file's new path was collected for the patch — the old path was never added to the manifest's removed files list. Client installations kept the old file on disk forever after any rename, since PatchModule only deletes files explicitly listed there. Renamed files' old paths are now collected the same way plain deletions are. (#2)
+
+---
+
 ## [1.10.02] - 2026-08-11
 
 | Category | Description |
