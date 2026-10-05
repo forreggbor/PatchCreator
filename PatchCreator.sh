@@ -19,7 +19,7 @@ set -euo pipefail
 # Constants
 # ==============================================================================
 
-VERSION="v1.10.03"
+VERSION="v1.10.04"
 SCRIPT_NAME="$(basename "$0")"
 START_TIME=$(date +%s)
 
@@ -55,6 +55,7 @@ DEFAULT_VERSION_FILES=(
     "app/[Hh]elpers/functions.php"
     "webroot/app/[Hh]elpers/functions.php"
     "public/app/[Hh]elpers/functions.php"
+    "src/bootstrap.php"
 )
 
 # Exit codes

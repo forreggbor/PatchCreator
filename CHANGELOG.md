@@ -5,6 +5,18 @@ All notable changes to PatchCreator will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.04] - 2026-10-05
+
+| Category | Description |
+|----------|-------------|
+| Changed  | Automatic version detection now also looks in `src/bootstrap.php` |
+
+### Changed
+
+- The automatic version detection searched for the `APP_VERSION` constant only in the `app/Helpers/functions.php` variants. Projects that define it in `src/bootstrap.php` needed the version passed explicitly. That file is now checked as the last candidate, after the existing ones. (#3)
+
+---
+
 ## [1.10.03] - 2026-08-18
 
 | Category | Description |

@@ -156,6 +156,7 @@ Searches for `define('APP_VERSION', 'X.Y.Z')` in these files, in order:
 | 1 | `app/[Hh]elpers/functions.php` |
 | 2 | `webroot/app/[Hh]elpers/functions.php` |
 | 3 | `public/app/[Hh]elpers/functions.php` |
+| 4 | `src/bootstrap.php` |
 
 Use `-v` to specify the version explicitly, or `-p` to override the detection pattern.
 
